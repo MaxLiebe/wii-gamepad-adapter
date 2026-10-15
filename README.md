@@ -1,59 +1,76 @@
-# Bluepad32 → Wii adapter
+# Wii Gamepad Adapter
 
-One original ESP32 is an HID host for one modern gamepad (Bluepad32) and, at
-the same time, a Wii Remote with a Classic Controller plugged in
-(WiimoteAnything). Both share one BTstack instance.
+Play the Wii with a modern Bluetooth gamepad. One original ESP32, no wires to
+the console: the gamepad connects to the ESP32, and the ESP32 shows up on the
+Wii as a **Wii Remote with a Classic Controller** plugged in.
 
-Anything Bluepad32 supports over Bluetooth Classic should work: DualSense,
-DualShock 4, Switch Pro, 8BitDo (SN30 Pro in Switch mode: hold **Start + Y**
-to power on). Xbox controllers on current firmware use BLE; set
-`ADAPTER_ENABLE_BLE 1` in `main/main.c` for those (BLE scanning costs some
-radio time on the Wii link).
+- Gamepads: anything [Bluepad32](https://github.com/ricardoquesada/bluepad32)
+  supports, over Bluetooth Classic or BLE (DualSense, DualShock 4, Switch Pro,
+  8BitDo, Xbox Wireless, Stadia, Steam, ...).
+- Wii side: [WiimoteAnything](https://github.com/MaxLiebe/wiimote-anything)
+  emulates the remote and its Classic Controller extension.
+- Both share one BTstack instance on one radio.
 
-## Build
+Rumble from the Wii drives the gamepad's motors. The Wii's player LEDs show on
+the gamepad's player LEDs (or as a light bar colour).
 
-1. Clone Bluepad32 (with submodules) next to the library:
+## Hardware
 
-   ```bash
-   git clone --recursive https://github.com/ricardoquesada/bluepad32.git components/bluepad32
-   ```
+An **original ESP32** dev board (ESP32-WROOM-32 / ESP32-WROVER). The ESP32-S3,
+C3, C6 and H2 have no Bluetooth Classic radio and cannot talk to a Wii.
 
-   (`components/bluepad32` in the repo root, or inside this example folder.)
+## Build and flash
 
-2. Build and flash (ESP-IDF 5.5 or 6.x):
+You need ESP-IDF 5.5 or 6.x.
 
-   ```bash
-   cd examples/Bluepad32_Wiimote_Adapter
-   idf.py set-target esp32
-   idf.py build flash monitor
-   ```
+```bash
+git clone --recursive https://github.com/MaxLiebe/wii-gamepad-adapter.git
+cd wii-gamepad-adapter
+idf.py set-target esp32
+idf.py build flash monitor
+```
 
-   If you have an `sdkconfig` from an older version of this example, delete
-   it so the new `sdkconfig.defaults` apply.
+Already cloned without `--recursive`? Run
+`git submodule update --init --recursive`.
 
 ## First-time pairing
 
-The gamepad always connects first and the Wii second. The ESP32 radio
-cannot reach a gamepad while the Wii link exists (it is the slave there; the
-log shows page timeout `0x04`), so the adapter only holds the Wii link while
-a gamepad is connected and pages the Wii again when the gamepad comes back.
+Pair the gamepad first, then the Wii.
 
-1. Boot the ESP32 and put the gamepad in pairing mode (DualSense: hold
-   **Create + PS** until the light bar flashes; 8BitDo: **Start + Y**, then
-   hold **Pair**). The log shows `Gamepad ready`.
-2. With no Wii remembered, the sync window then opens by itself for 20 s:
-   press the red **SYNC** button on the Wii (behind the SD card door). The log
-   shows `Console ... connected`.
+1. Boot the ESP32 and put the gamepad in pairing mode (table below). The log
+   shows `Gamepad ready`.
+2. With no Wii remembered yet, the sync window opens by itself for 20 s.
+   Press the red **SYNC** button on the Wii (behind the SD card door). The log
+   shows `Wii connected`.
 
-Both are remembered (NVS).
+Both are remembered across reboots.
+
+| Gamepad | Pairing mode |
+| --- | --- |
+| DualSense / DualShock 4 | Hold **Create/Share + PS** until the light bar flashes |
+| Switch Pro | Hold the small **sync** button on top |
+| Xbox Wireless (BLE firmware) | Hold the **pair** button on top until the logo flashes fast |
+| 8BitDo (SN30 Pro, Pro 2, ...) | Switch it on in a mode (below), then hold **Pair** for 3 s |
+
+8BitDo pads pair separately in each mode, so pick one and stay with it:
+
+| Power-on combo | Mode |
+| --- | --- |
+| **Start + Y** | Switch |
+| **Start + B** | Android (D-Input) |
+| **Start + X** | Windows (X-Input) |
+| **Start + A** | macOS |
+
+If a pad that was paired before refuses to connect, hold **BOOT** for 5 s to
+forget all gamepads (and the Wii), then pair again.
 
 ## Every day
 
 - Turn the gamepad on (PS / Home). It reconnects to the ESP32, and the ESP32
-  pages the Wii. If the Wii was not ready, any button press retries (every 6 s).
-- When the Wii drops the remote while it stays on (starting a game, radio
-  trouble), the ESP32 pages it again by itself for up to 60 s.
-- Wii turned off (or HOME menu → disconnect): press a button to reconnect.
+  connects to the Wii. If the Wii was not ready, any button press retries.
+- When the Wii drops the remote while it stays on (a game starting, radio
+  trouble), the ESP32 reconnects by itself for up to 60 s.
+- Wii switched off (or HOME menu → disconnect): press a button to reconnect.
 - Gamepad switched off or out of range: the Wii link stays up with all inputs
   released, so the game sees an idle remote until the gamepad is back.
 
@@ -63,19 +80,16 @@ Both are remembered (NVS).
 | --- | --- |
 | Left / right stick | Classic Controller left / right stick |
 | D-pad | Classic D-pad (and Wii Remote D-pad) |
-| East / South / North / West face buttons | Classic **a / b / x / y** (Nintendo layout by position) |
+| East / South / North / West face buttons | Classic **a / b / x / y** (Nintendo layout, by position) |
 | L1 / R1 | Classic **ZL / ZR** |
-| L2 / R2 (analog) | Classic **L / R** analog, click at 85 % |
+| L2 / R2 | Classic **L / R** (analog where the gamepad has it; click at 85 %) |
 | Select / Start | **− / +** |
-| PS / Home / Guide | **HOME** (Classic and Wii Remote) |
+| PS / Home / Guide | **HOME** |
 
-Wii Remote A / B / 1 / 2 / + / − / D-pad are mirrored too
-(`ADAPTER_MIRROR_CORE_BUTTONS`), so "Press A" screens and the HOME menu work.
-Set `ADAPTER_LABEL_LAYOUT 1` in `main.c` to map by label (Xbox A → Wii a)
-instead of by position.
-
-Rumble from the Wii drives the gamepad's motors; the Wii's player LEDs show on
-the gamepad.
+The Wii Remote's A / B / 1 / 2 / + / − / D-pad are pressed too
+(`ADAPTER_MIRROR_CORE_BUTTONS`), so "Press A" screens and the Wii Menu work
+from the gamepad. Set `ADAPTER_LABEL_LAYOUT 1` in `main/main.c` to map by
+label (Xbox A → Wii a) instead of by position.
 
 ## Buttons on the adapter
 
@@ -88,22 +102,46 @@ the gamepad.
 The Bluepad32 console on the serial port also works (`list_bluetooth_keys`,
 `del_bluetooth_keys`, ...).
 
+## Options (`main/main.c`)
+
+| Option | Default | |
+| --- | --- | --- |
+| `ADAPTER_ENABLE_BLE` | 1 | BLE gamepads. Scanning only runs while no gamepad is connected. |
+| `ADAPTER_MIRROR_CORE_BUTTONS` | 1 | Also press the matching Wii Remote buttons. |
+| `ADAPTER_LABEL_LAYOUT` | 0 | Map face buttons by label instead of position. |
+| `ADAPTER_SYNC_GPIO` | 0 | Sync / forget button (BOOT). -1 disables it. |
+
 ## How the sharing works
 
 - `wiimote_init()` runs after `btstack_init()` and before `uni_init()`.
-  WiimoteAnything takes L2CAP PSM 0x11 / 0x13 and forwards every channel that is
-  not the console to `uni_bt_packet_handler`.
-- The console is recognised by its class of device (the Wii is `0x000448`,
-  gamepads are "peripheral") or by being the console synced before. Its
-  connection request and PIN request are hidden from Bluepad32.
+  WiimoteAnything owns L2CAP PSM 0x11 / 0x13 and forwards every channel that
+  is not the console to Bluepad32. A gamepad's incoming channels reach
+  Bluepad32 only once the link is authenticated and encrypted, as Bluepad32's
+  own services would require (Switch-mode pads depend on that).
+- The console is recognised by being the Wii synced before, by the Wii's class
+  of device (`0x000448`), or by connecting during the sync window. Its
+  connection and PIN requests are hidden from Bluepad32.
 - The ESP32 radio stalls when it is slave on one link and master on another,
-  so the ESP32 stays master on both: it pages the Wii itself with role
-  switching refused, and turns off role switching and sniff mode on the Wii
-  link. When the Wii paged us (sync), the adapter hangs up and pages it back.
-- Order matters: gamepad link first, then the Wii. Without a gamepad the Wii
-  link is released (the pairing is kept).
-- Gamepad scanning (inquiry) runs only while no gamepad is connected and no
-  sync window is open. Bonded gamepads reconnect by paging the ESP32, which
-  needs no scanning.
-- BLE is off by default (`ADAPTER_ENABLE_BLE`), so BLE scanning does not take
-  radio time from the Wii link.
+  so the ESP32 stays master on both. It pages the Wii itself with role
+  switching refused. Once a gamepad is ready (never while it is still
+  pairing), the adapter asks to be its master too, with sniff mode off and a
+  short poll interval.
+- Gamepad first, then the Wii. Without a gamepad the Wii link is released
+  (the pairing is kept).
+
+## Troubleshooting
+
+- **Gamepad never shows `Gamepad ready`:** forget everything (hold BOOT 5 s),
+  then put the pad in pairing mode again. A `Device found: ... COD` log line
+  shows that the ESP32 sees it at all.
+- **Wii never connects during sync:** press SYNC on the Wii while the log says
+  the sync window is open, and keep the ESP32 within a few metres.
+- If you had an `sdkconfig` from an older build, delete it so
+  `sdkconfig.defaults` applies.
+
+## License
+
+MIT for this project (see `LICENSE`). Bluepad32 is Apache 2.0. BTstack, which
+Bluepad32 uses, is free for non-commercial use only; read
+[BTstack's license](https://github.com/bluekitchen/btstack/blob/master/LICENSE)
+before you sell anything built on it.

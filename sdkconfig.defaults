@@ -1,4 +1,4 @@
-# Bluepad32 -> Wii adapter (original ESP32 only)
+# Wii Gamepad Adapter (original ESP32 only)
 
 CONFIG_IDF_TARGET="esp32"
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
@@ -29,7 +29,7 @@ CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
 # Bluepad32
 CONFIG_BLUEPAD32_PLATFORM_CUSTOM=y
 CONFIG_BLUEPAD32_MAX_DEVICES=2
-# Classic gamepads only by default (see ADAPTER_ENABLE_BLE in main.c).
+# BLE gamepads are switched on at runtime (ADAPTER_ENABLE_BLE in main/main.c).
 # CONFIG_BLUEPAD32_ENABLE_BLE_BY_DEFAULT is not set
 
 # BTstack

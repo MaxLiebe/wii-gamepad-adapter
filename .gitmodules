@@ -1,0 +1,7 @@
+[submodule "external/wiimote-anything"]
+	path = external/wiimote-anything
+	url = https://github.com/MaxLiebe/wiimote-anything.git
+	branch = feature/btstack-support
+[submodule "external/bluepad32"]
+	path = external/bluepad32
+	url = https://github.com/ricardoquesada/bluepad32.git

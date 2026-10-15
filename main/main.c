@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: MIT */
 /*
- * Bluepad32 -> Wii adapter.
+ * Wii Gamepad Adapter: a modern Bluetooth gamepad shows up on a Wii as a
+ * Wii Remote with a Classic Controller plugged in.
  *
  * One original ESP32 is both:
  *   - an HID host for one modern gamepad (Bluepad32: DualSense, DualShock 4,
- *     Switch Pro, 8BitDo, Xbox, ...), and
+ *     Switch Pro, 8BitDo, Xbox, Stadia, ...), and
  *   - a Wii Remote with a Classic Controller plugged in (WiimoteAnything).
  *
  * Both share one BTstack instance. WiimoteAnything owns L2CAP PSM 0x11/0x13
@@ -16,7 +17,7 @@
  *
  * Pairing, once:
  *   1. Flash and boot. Put the gamepad in pairing mode (DualSense: Create+PS;
- *      8BitDo SN30 Pro: Start+Y for Switch mode, then hold Pair).
+ *      8BitDo: switch it on in a mode, then hold Pair; see README.md).
  *   2. When the gamepad is ready, the sync window opens by itself for 20 s:
  *      press the red SYNC button on the Wii.
  *      (Later: press BOOT, or hold Select+Start for 3 s, to sync again.)
@@ -51,9 +52,10 @@
 
 /* BOOT button on most dev boards. Short press: sync. Hold 5 s: forget all. -1 disables. */
 #define ADAPTER_SYNC_GPIO 0
-/* BLE scanning costs radio time the console link needs. Classic gamepads
- * (DualSense, DS4, Switch Pro, 8BitDo in Switch/D-input mode) do not need it. */
-#define ADAPTER_ENABLE_BLE 0
+/* BLE gamepads (Xbox Wireless on current firmware, Stadia, Steam, some 8BitDo
+ * models). Scanning only runs while no gamepad is connected, so this costs the
+ * console link nothing once a gamepad is in use. 0: Bluetooth Classic only. */
+#define ADAPTER_ENABLE_BLE 1
 /* Also press the matching Wii Remote buttons, so screens that only listen to
  * the remote ("Press A", Wii Menu, HOME menu) work from the gamepad. */
 #define ADAPTER_MIRROR_CORE_BUTTONS 1
@@ -170,8 +172,25 @@ static void forget_everything(void)
 
 static void pad_set_leds(uint8_t mask)
 {
-    if (s_pad != NULL && s_pad->report_parser.set_player_leds != NULL) {
+    if (s_pad == NULL) {
+        return;
+    }
+    if (s_pad->report_parser.set_player_leds != NULL) {
         s_pad->report_parser.set_player_leds(s_pad, mask & 0x0f);
+    } else if (s_pad->report_parser.set_lightbar_color != NULL) {
+        /* DualShock 4 and friends: a colour per player (dim when none). */
+        static const uint8_t k_colors[5][3] = {
+            {0x08, 0x08, 0x08}, {0x00, 0x00, 0xff}, {0xff, 0x00, 0x00}, {0x00, 0xff, 0x00}, {0xff, 0x00, 0xff},
+        };
+        int player = 0;
+        for (int i = 0; i < 4; i++) {
+            if (mask & (1u << i)) {
+                player = i + 1;
+                break;
+            }
+        }
+        s_pad->report_parser.set_lightbar_color(s_pad, k_colors[player][0], k_colors[player][1],
+                                                k_colors[player][2]);
     }
 }
 
@@ -478,7 +497,13 @@ static uni_error_t adapter_on_device_ready(uni_hid_device_t *d)
     }
     s_pad = d;
     s_battery_sent = 0;
-    ESP_LOGI(TAG, "Gamepad ready: %s (%s)", d->name, bd_addr_to_str(d->conn.btaddr));
+    ESP_LOGI(TAG, "Gamepad ready: %s, %s (%s, %s)", d->name, uni_gamepad_get_model_name(d->controller_type),
+             bd_addr_to_str(d->conn.btaddr), d->conn.protocol == UNI_BT_CONN_PROTOCOL_BLE ? "BLE" : "Classic");
+    if (d->conn.protocol == UNI_BT_CONN_PROTOCOL_BR_EDR) {
+        /* Now that Bluepad32 is done with it: ESP32 master, no sniff, short
+         * poll interval, so it shares the radio well with the Wii link. */
+        wiimote_btstack_tune_link(d->conn.handle, d->conn.btaddr);
+    }
     update_scanning();
     pad_set_leds(s_wii_leds);
     if (s_rumble_on) {
