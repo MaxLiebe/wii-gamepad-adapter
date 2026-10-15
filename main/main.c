@@ -66,11 +66,17 @@
 #define TRIGGER_DIGITAL_THRESHOLD 0.85f
 #define SYNC_COMBO_HOLD_MS 3000
 #define FORGET_HOLD_MS 5000
-#define RECONNECT_RETRY_MS 6000
-/* After the Wii dropped us (e.g. when a game starts it resets every remote),
- * page it again on our own for this long, like a real remote does. */
+/* Button presses retry a failed page at most this often. */
+#define RECONNECT_RETRY_MS 1000
+/* After the Wii dropped us (a game or homebrew app starting resets every
+ * remote), page it again on our own, back to back, for this long, like a real
+ * remote does. A Wii that "powered off" (reason 0x15) gets a shorter window:
+ * IOS reloads report that too, and paging a console that really is off costs
+ * nothing but radio time. */
 #define AUTO_RECONNECT_WINDOW_MS 60000
-#define AUTO_RECONNECT_FIRST_MS 300
+#define AUTO_RECONNECT_POWER_OFF_MS 15000
+#define AUTO_RECONNECT_FIRST_MS 200
+#define AUTO_RECONNECT_GAP_MS 100
 /* Re-page this soon after dropping a link on which the ESP32 is the slave. */
 #define REPAGE_DELAY_MS 1000
 #define RUMBLE_REFRESH_MS 4000
@@ -90,6 +96,7 @@ static int64_t s_rumble_sent_ms;
 static int64_t s_last_connect_ms = -RECONNECT_RETRY_MS;
 static uint8_t s_battery_sent;
 static int64_t s_auto_reconnect_until_ms = -1;
+static int64_t s_auto_next_page_ms;
 static int64_t s_repage_at_ms = -1;
 static bool s_we_dropped_wii;
 
@@ -128,7 +135,7 @@ static void update_scanning(void)
 static void try_connect_wii(const char *why)
 {
     int64_t now = now_ms();
-    if (s_wii_connected || s_syncing || !wiimote_has_paired_host()) {
+    if (s_wii_connected || s_syncing || !wiimote_has_paired_host() || wiimote_is_connecting()) {
         return;
     }
     if (s_pad == NULL) {
@@ -256,16 +263,12 @@ static void on_wii_disconnected(void *user)
     if (ours || s_pad == NULL) {
         return;
     }
-    if (reason == 0x15) {
-        /* Remote device power off: the Wii was switched off. */
-        ESP_LOGI(TAG, "The Wii switched off. Press a gamepad button to wake it.");
-        return;
-    }
-    /* The Wii hung up while still on (a game starting, the Home menu's
-     * "reconnect" or radio trouble): come back on our own. */
+    /* The Wii hung up while still on (a game or homebrew app starting, the
+     * Home menu's "reconnect", radio trouble): come back on our own. 0x15
+     * ("powered off") is also what some IOS reloads report. */
     int64_t now = now_ms();
-    s_auto_reconnect_until_ms = now + AUTO_RECONNECT_WINDOW_MS;
-    s_last_connect_ms = now + AUTO_RECONNECT_FIRST_MS - RECONNECT_RETRY_MS;
+    s_auto_reconnect_until_ms = now + (reason == 0x15 ? AUTO_RECONNECT_POWER_OFF_MS : AUTO_RECONNECT_WINDOW_MS);
+    s_auto_next_page_ms = now + AUTO_RECONNECT_FIRST_MS;
 }
 
 static void on_wii_leds(uint8_t mask, void *user)
@@ -617,7 +620,12 @@ static void tick(btstack_timer_source_t *ts)
             if (now >= s_auto_reconnect_until_ms) {
                 s_auto_reconnect_until_ms = -1;
                 ESP_LOGI(TAG, "Wii did not come back. Press a gamepad button to retry.");
-            } else {
+            } else if (wiimote_is_connecting()) {
+                s_auto_next_page_ms = now + AUTO_RECONNECT_GAP_MS;
+            } else if (now >= s_auto_next_page_ms) {
+                /* Page again as soon as the last page ended: the Wii
+                 * page-scans again within a second or two of a reload. */
+                s_last_connect_ms = -RECONNECT_RETRY_MS;
                 try_connect_wii("auto-reconnect");
             }
         }

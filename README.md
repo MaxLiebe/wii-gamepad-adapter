@@ -68,9 +68,11 @@ forget all gamepads (and the Wii), then pair again.
 
 - Turn the gamepad on (PS / Home). It reconnects to the ESP32, and the ESP32
   connects to the Wii. If the Wii was not ready, any button press retries.
-- When the Wii drops the remote while it stays on (a game starting, radio
-  trouble), the ESP32 reconnects by itself for up to 60 s.
-- Wii switched off (or HOME menu → disconnect): press a button to reconnect.
+- When the Wii drops the remote (a game or homebrew app starting, radio
+  trouble), the ESP32 pages it again back to back, like a real remote, for up
+  to 60 s (15 s when the Wii reported "powered off", which some reloads do).
+- Wii switched off for good (or HOME menu → disconnect): press a button to
+  reconnect.
 - Gamepad switched off or out of range: the Wii link stays up with all inputs
   released, so the game sees an idle remote until the gamepad is back.
 
